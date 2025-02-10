@@ -1,0 +1,41 @@
+# Node.js (Frontend - React/Vue)
+node_modules/
+dist/
+build/
+.env
+
+# PHP (Backend)
+vendor/
+.env
+*.log
+
+# MySQL (BDD export et fichiers temporaires)
+*.sql
+*.sqlite
+*.db
+
+# Python (Application annexe)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+
+# Logs et fichiers temporaires
+logs/
+*.log
+*.bak
+*.swp
+*.swo
+*.swn
+
+# IDE et éditeurs
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+.pdf
+.odt
