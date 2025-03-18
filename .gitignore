@@ -37,5 +37,9 @@ logs/
 *.iml
 .DS_Store
 Thumbs.db
-.pdf
-.odt
+*.pdf
+*.odt
+*.docx
+*.drawio
+*.png
+*.mwb
