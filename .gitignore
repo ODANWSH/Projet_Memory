@@ -43,3 +43,4 @@ Thumbs.db
 *.drawio
 *.png
 *.mwb
+!/assets/logo_memory.png
