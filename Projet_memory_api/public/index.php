@@ -2,8 +2,14 @@
 
 use Slim\Factory\AppFactory;
 use DI\Container;
+use Dotenv\Dotenv;
+
 
 require __DIR__ . '/../vendor/autoload.php';
+
+// Charger les variables d'environnement
+$dotenv = Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv->load();
 
 // Créer le container PHP-DI
 $container = new Container();

@@ -202,15 +202,37 @@ return function ($app) {
     // POST - Crée un nouvel utilisateur
     $app->post('/utilisateurs', function (Request $request, Response $response) {
         $data = $request->getParsedBody();
+        
+        if (!isset($data['nom_utilisateur']) || !isset($data['prenom_utilisateur']) || !isset($data['email_utilisateur']) || !isset($data['mot_de_passe'])) {
+            $response->getBody()->write(json_encode(['error' => 'Données manquantes. Champs requis: nom_utilisateur, prenom_utilisateur, email_utilisateur, mot_de_passe']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $existing = $this->get('db')->table('Utilisateur')
+            ->where('email_utilisateur', $data['email_utilisateur'])
+            ->first();
+        
+        if ($existing) {
+            $response->getBody()->write(json_encode(['error' => 'Email déjà utilisé']));
+            return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
+        }
+
+        $hashedPassword = password_hash($data['mot_de_passe'], PASSWORD_BCRYPT);
+        
         $id = $this->get('db')->table('Utilisateur')->insertGetId([
             'nom_utilisateur' => $data['nom_utilisateur'],
             'prenom_utilisateur' => $data['prenom_utilisateur'],
             'email_utilisateur' => $data['email_utilisateur'],
-            'mot_de_passe' => password_hash($data['mot_de_passe'], PASSWORD_DEFAULT),
-            'est_interne' => $data['est_interne'],
-            'Equipe_id_equipe' => $data['Equipe_id_equipe']
+            'mot_de_passe' => $hashedPassword,
+            'est_interne' => $data['est_interne'] ?? true,
+            'Equipe_id_equipe' => $data['Equipe_id_equipe'] ?? null
         ]);
-        $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Utilisateur créé']));
+        
+        $response->getBody()->write(json_encode([
+            'message' => 'Utilisateur créé avec succès',
+            'id' => $id
+        ]));
+        
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
