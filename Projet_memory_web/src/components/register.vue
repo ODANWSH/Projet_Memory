@@ -53,6 +53,7 @@
 
 <script setup>
 import { ref } from "vue";
+import { onMounted } from "vue";
 import Popup from "./pop-up-register.vue";
 
 const showPopup = ref(false);
@@ -77,23 +78,16 @@ function register() {
 function closePopup() {
   showPopup.value = false;
 }
+
+onMounted(() => {
+  document.body.style.backgroundColor = "#ff584a";
+});
 </script>
 
-<style>
-@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
-
-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background-color: #ff584a;
-  font-family: "Inter", sans-serif;
-}
-
+<style scoped>
 .logo img {
   margin-top: 30px;
-  margin-left: 115px;
+  margin-left: 120px;
   margin-bottom: 30px;
   width: 250px;
   height: 200px;

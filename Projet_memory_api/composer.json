@@ -1,0 +1,25 @@
+{
+    "name": "timeo/projet_memory_api",
+    "description": "Memory API",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Timeo\\ProjetMemoryApi\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "ODANWSH",
+            "email": "timeo.minarditm@gmail.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "slim/http": "^1.4",
+        "slim/psr7": "^1.7",
+        "slim/slim": "4.*",
+        "illuminate/database": "^12.35",
+        "php-di/php-di": "^7.1"
+    }
+}

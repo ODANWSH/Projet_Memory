@@ -1,5 +1,10 @@
-<script setup lang="ts">
-import router from "./router";
+<script setup>
+import router from "../router";
+import { onMounted } from "vue";
+
+onMounted(() => {
+  document.body.style.backgroundColor = "#ff584a";
+});
 </script>
 
 <template>
@@ -15,7 +20,9 @@ import router from "./router";
         <input type="password" placeholder="Mot de passe" required />
       </div>
       <div class="form-group">
-        <button type="submit">Connexion</button>
+        <router-link to="/Accueil">
+          <button type="submit">Connexion</button>
+        </router-link>
       </div>
     </form>
     <div class="link">
@@ -26,61 +33,56 @@ import router from "./router";
   </div>
 </template>
 
-<style>
-@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+<style scoped>
+.container .logo img {
+  margin-top: 30px;
+  margin-left: 145px;
+  margin-bottom: 30px;
+  width: 330px;
+  height: 262px;
+}
+
+.container .form-group input {
+  width: 600px;
+  height: 120px;
+  border-radius: 30px;
+  padding: 10px;
+  margin-top: 50px;
+  margin-left: 10px;
+  border: none;
+  text-align: center;
+  font-size: 40px;
+}
+
+.container .form-group button {
+  background-color: #690030;
+  color: white;
+  border: none;
+  border-radius: 30px;
+  width: 600px;
+  height: 120px;
+  margin-top: 50px;
+  margin-left: 10px;
+  font-size: 40px;
+  cursor: pointer;
+}
+
+.container .form-group button:hover {
+  background-color: #4a001f;
+}
 
 .container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: #ff584a;
-  font-family: "Inter", sans-serif;
-}
-
-.logo img {
-  margin-top: 30px;
-  margin-left: 140px;
-  margin-bottom: 30px;
-  width: 330px;
-  height: 262px;
-}
-
-.form-group input {
-  width: 600px;
-  height: 120px;
-  border-radius: 30px;
-  padding: 10px;
   margin-top: 50px;
-  background-color: #690030;
-  text-align: center;
-  font-size: 64px;
-  color: white;
-}
-
-.form-group input::placeholder {
-  color: white;
-}
-
-.form-group button {
-  width: 420px;
-  height: 115px;
-  padding: 10px;
-  margin-top: 80px;
-  background-color: #690030;
-  color: white;
-  font-size: 64px;
-  border-radius: 30px;
-  cursor: pointer;
-  margin-left: 105px;
 }
 
 .link {
-  margin-top: 15px;
-}
-
-.link a {
+  margin-top: 30px;
   color: white;
+  text-decoration: none;
   font-size: 40px;
 }
 </style>
