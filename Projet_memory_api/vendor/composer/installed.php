@@ -3,7 +3,7 @@
         'name' => 'timeo/projet_memory_api',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '1de94bae410a5703c44298a214091dbebb5e6680',
+        'reference' => '95055a59ec5010962f3a9f2240ba75ce92c69d36',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -419,7 +419,7 @@
         'timeo/projet_memory_api' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '1de94bae410a5703c44298a214091dbebb5e6680',
+            'reference' => '95055a59ec5010962f3a9f2240ba75ce92c69d36',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

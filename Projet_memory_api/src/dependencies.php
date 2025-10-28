@@ -2,8 +2,7 @@
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 
-return function ($app) {
-    $container = $app->getContainer();
+return function () {
     $settings = require __DIR__ . '/settings.php';
 
     $capsule = new Capsule;
@@ -11,7 +10,5 @@ return function ($app) {
     $capsule->setAsGlobal();
     $capsule->bootEloquent();
 
-    $container->set('db', function () use ($capsule) {
-        return $capsule;
-    });
+    return $capsule;
 };

@@ -3,7 +3,7 @@
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-return function ($app) {
+return function ($app, $capsule) {
 
     // ========================================
     // ROUTE D'ACCUEIL - Documentation API
@@ -14,6 +14,12 @@ return function ($app) {
             'message' => 'Bienvenue sur l\'API Projet Memory',
             'version' => '1.0',
             'endpoints' => [
+                'Authentification' => [
+                    'POST /login' => 'Connexion utilisateur',
+                    'POST /register' => 'Inscription utilisateur',
+                    'POST /logout' => 'Déconnexion utilisateur',
+                    'GET /check-session' => 'Vérifier si l\'utilisateur est connecté'
+                ],
                 'Équipes' => [
                     'GET /equipes' => 'Liste toutes les équipes',
                     'GET /equipes/{id}' => 'Récupère une équipe par ID',
@@ -34,7 +40,7 @@ return function ($app) {
                     'DELETE /utilisateurs/{id_utilisateur}/competences/{id_competence}' => 'Retire une compétence d\'un utilisateur',
                     'POST /utilisateurs/{id_utilisateur}/roles/{id_role}' => 'Associe un rôle à un utilisateur',
                     'DELETE /utilisateurs/{id_utilisateur}/roles/{id_role}' => 'Retire un rôle d\'un utilisateur',
-                    'POST /utilisateurs/{id_utilisateur}/notifications/{id_notification}' => 'Associe une notification à un utilisateur'
+                    'POST /utilisateurs/{id_utilisateur}/notifications/{id_notification}' => 'Associe une notification à un utilisateur',
                 ],
                 'Projets' => [
                     'GET /projets' => 'Liste tous les projets',
@@ -129,19 +135,142 @@ return function ($app) {
     });
 
     // ========================================
+    // ROUTES AUTHENTIFICATION
+    // ========================================
+    
+    $app->post('/login', function (Request $request, Response $response) use ($capsule) {
+        $data = $request->getParsedBody();
+        
+        if (!isset($data['email']) || !isset($data['password'])) {
+            $response->getBody()->write(json_encode(['error' => 'Email et mot de passe requis']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $user = $capsule->table('Utilisateur')
+            ->where('email_utilisateur', $data['email'])
+            ->first();
+        
+        if (!$user) {
+            $response->getBody()->write(json_encode(['error' => 'Email ou mot de passe incorrect']));
+            return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+        }
+        
+        if (!password_verify($data['password'], $user->mot_de_passe)) {
+            $response->getBody()->write(json_encode(['error' => 'Email ou mot de passe incorrect']));
+            return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $_SESSION['user_id'] = $user->id_utilisateur;
+        $_SESSION['user_email'] = $user->email_utilisateur;
+        $_SESSION['user_nom'] = $user->nom_utilisateur;
+        $_SESSION['user_prenom'] = $user->prenom_utilisateur;
+        $_SESSION['est_interne'] = $user->est_interne;
+        $_SESSION['logged_in'] = true;
+        
+        $response->getBody()->write(json_encode([
+            'message' => 'Connexion réussie',
+            'user' => [
+                'id' => $user->id_utilisateur,
+                'nom' => $user->nom_utilisateur,
+                'prenom' => $user->prenom_utilisateur,
+                'email' => $user->email_utilisateur,
+                'est_interne' => $user->est_interne
+            ]
+        ]));
+        
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+    });
+    
+    $app->post('/register', function (Request $request, Response $response) use ($capsule) {
+        $data = $request->getParsedBody();
+        
+        if (!isset($data['nom_utilisateur']) || !isset($data['prenom_utilisateur']) || 
+            !isset($data['email_utilisateur']) || !isset($data['mot_de_passe'])) {
+            $response->getBody()->write(json_encode(['error' => 'Tous les champs sont requis']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $existing = $capsule->table('Utilisateur')
+            ->where('email_utilisateur', $data['email_utilisateur'])
+            ->first();
+        
+        if ($existing) {
+            $response->getBody()->write(json_encode(['error' => 'Cet email est déjà utilisé']));
+            return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $hashedPassword = password_hash($data['mot_de_passe'], PASSWORD_BCRYPT);
+        
+        $userId = $capsule->table('Utilisateur')->insertGetId([
+            'nom_utilisateur' => $data['nom_utilisateur'],
+            'prenom_utilisateur' => $data['prenom_utilisateur'],
+            'email_utilisateur' => $data['email_utilisateur'],
+            'mot_de_passe' => $hashedPassword,
+            'est_interne' => $data['est_interne'] ?? true,
+            'Equipe_id_equipe' => $data['Equipe_id_equipe'] ?? null
+        ]);
+        
+        $_SESSION['user_id'] = $userId;
+        $_SESSION['user_email'] = $data['email_utilisateur'];
+        $_SESSION['user_nom'] = $data['nom_utilisateur'];
+        $_SESSION['user_prenom'] = $data['prenom_utilisateur'];
+        $_SESSION['logged_in'] = true;
+        
+        $response->getBody()->write(json_encode([
+            'message' => 'Inscription réussie',
+            'user' => [
+                'id' => $userId,
+                'nom' => $data['nom_utilisateur'],
+                'prenom' => $data['prenom_utilisateur'],
+                'email' => $data['email_utilisateur']
+            ]
+        ]));
+        
+        return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+    });
+    
+    $app->post('/logout', function (Request $request, Response $response) {
+        session_destroy();
+        $response->getBody()->write(json_encode(['message' => 'Déconnexion réussie']));
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+    });
+    
+    $app->get('/check-session', function (Request $request, Response $response) {
+        if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
+            $response->getBody()->write(json_encode([
+                'authenticated' => true,
+                'user' => [
+                    'id' => $_SESSION['user_id'],
+                    'nom' => $_SESSION['user_nom'],
+                    'prenom' => $_SESSION['user_prenom'],
+                    'email' => $_SESSION['user_email'],
+                    'est_interne' => $_SESSION['est_interne'] ?? null
+                ]
+            ]));
+        } else {
+            $response->getBody()->write(json_encode(['authenticated' => false]));
+        }
+        
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+    });
+
+    // ========================================
     // ROUTES EQUIPE
     // ========================================
     
-    // GET - Liste toutes les équipes
-    $app->get('/equipes', function (Request $request, Response $response) {
-        $equipes = $this->get('db')->table('Equipe')->get();
-        $response->getBody()->write($equipes->toJson());
+    $app->get('/equipes', function (Request $request, Response $response) use ($capsule) {
+        if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+            $response->getBody()->write(json_encode(['error' => 'Non authentifié']));
+            return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
+        }
+        
+        $equipes = $capsule->table('Equipe')->get();
+        $response->getBody()->write(json_encode($equipes));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère une équipe par ID
-    $app->get('/equipes/{id}', function (Request $request, Response $response, array $args) {
-        $equipe = $this->get('db')->table('Equipe')->where('id_equipe', $args['id'])->first();
+    $app->get('/equipes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $equipe = $capsule->table('Equipe')->where('id_equipe', $args['id'])->first();
         if (!$equipe) {
             $response->getBody()->write(json_encode(['error' => 'Equipe non trouvée']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -150,29 +279,26 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle équipe
-    $app->post('/equipes', function (Request $request, Response $response) {
+    $app->post('/equipes', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Equipe')->insertGetId([
+        $id = $capsule->table('Equipe')->insertGetId([
             'nom_equipe' => $data['nom_equipe']
         ]);
         $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Equipe créée']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour une équipe
-    $app->put('/equipes/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/equipes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $updated = $this->get('db')->table('Equipe')->where('id_equipe', $args['id'])->update([
+        $capsule->table('Equipe')->where('id_equipe', $args['id'])->update([
             'nom_equipe' => $data['nom_equipe']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Equipe mise à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une équipe
-    $app->delete('/equipes/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Equipe')->where('id_equipe', $args['id'])->delete();
+    $app->delete('/equipes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Equipe')->where('id_equipe', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Equipe supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -181,16 +307,14 @@ return function ($app) {
     // ROUTES UTILISATEUR
     // ========================================
     
-    // GET - Liste tous les utilisateurs
-    $app->get('/utilisateurs', function (Request $request, Response $response) {
-        $users = $this->get('db')->table('Utilisateur')->get();
+    $app->get('/utilisateurs', function (Request $request, Response $response) use ($capsule) {
+        $users = $capsule->table('Utilisateur')->get();
         $response->getBody()->write($users->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère un utilisateur par ID
-    $app->get('/utilisateurs/{id}', function (Request $request, Response $response, array $args) {
-        $user = $this->get('db')->table('Utilisateur')->where('id_utilisateur', $args['id'])->first();
+    $app->get('/utilisateurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $user = $capsule->table('Utilisateur')->where('id_utilisateur', $args['id'])->first();
         if (!$user) {
             $response->getBody()->write(json_encode(['error' => 'Utilisateur non trouvé']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -199,16 +323,15 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouvel utilisateur
-    $app->post('/utilisateurs', function (Request $request, Response $response) {
+    $app->post('/utilisateurs', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
         
         if (!isset($data['nom_utilisateur']) || !isset($data['prenom_utilisateur']) || !isset($data['email_utilisateur']) || !isset($data['mot_de_passe'])) {
-            $response->getBody()->write(json_encode(['error' => 'Données manquantes. Champs requis: nom_utilisateur, prenom_utilisateur, email_utilisateur, mot_de_passe']));
+            $response->getBody()->write(json_encode(['error' => 'Données manquantes']));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
         
-        $existing = $this->get('db')->table('Utilisateur')
+        $existing = $capsule->table('Utilisateur')
             ->where('email_utilisateur', $data['email_utilisateur'])
             ->first();
         
@@ -219,7 +342,7 @@ return function ($app) {
 
         $hashedPassword = password_hash($data['mot_de_passe'], PASSWORD_BCRYPT);
         
-        $id = $this->get('db')->table('Utilisateur')->insertGetId([
+        $id = $capsule->table('Utilisateur')->insertGetId([
             'nom_utilisateur' => $data['nom_utilisateur'],
             'prenom_utilisateur' => $data['prenom_utilisateur'],
             'email_utilisateur' => $data['email_utilisateur'],
@@ -236,8 +359,7 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un utilisateur
-    $app->put('/utilisateurs/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/utilisateurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
         $updateData = [
             'nom_utilisateur' => $data['nom_utilisateur'],
@@ -249,14 +371,13 @@ return function ($app) {
         if (isset($data['mot_de_passe'])) {
             $updateData['mot_de_passe'] = password_hash($data['mot_de_passe'], PASSWORD_DEFAULT);
         }
-        $this->get('db')->table('Utilisateur')->where('id_utilisateur', $args['id'])->update($updateData);
+        $capsule->table('Utilisateur')->where('id_utilisateur', $args['id'])->update($updateData);
         $response->getBody()->write(json_encode(['message' => 'Utilisateur mis à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un utilisateur
-    $app->delete('/utilisateurs/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Utilisateur')->where('id_utilisateur', $args['id'])->delete();
+    $app->delete('/utilisateurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Utilisateur')->where('id_utilisateur', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Utilisateur supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -265,16 +386,14 @@ return function ($app) {
     // ROUTES PROJET
     // ========================================
     
-    // GET - Liste tous les projets
-    $app->get('/projets', function (Request $request, Response $response) {
-        $projets = $this->get('db')->table('Projet')->get();
+    $app->get('/projets', function (Request $request, Response $response) use ($capsule) {
+        $projets = $capsule->table('Projet')->get();
         $response->getBody()->write($projets->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère un projet par ID
-    $app->get('/projets/{id}', function (Request $request, Response $response, array $args) {
-        $projet = $this->get('db')->table('Projet')->where('id_projet', $args['id'])->first();
+    $app->get('/projets/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $projet = $capsule->table('Projet')->where('id_projet', $args['id'])->first();
         if (!$projet) {
             $response->getBody()->write(json_encode(['error' => 'Projet non trouvé']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -283,19 +402,17 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère tous les projets d'un utilisateur
-    $app->get('/utilisateurs/{id}/projets', function (Request $request, Response $response, array $args) {
-        $projets = $this->get('db')->table('Projet')
+    $app->get('/utilisateurs/{id}/projets', function (Request $request, Response $response, array $args) use ($capsule) {
+        $projets = $capsule->table('Projet')
             ->where('Utilisateur_id_utilisateur', $args['id'])
             ->get();
         $response->getBody()->write($projets->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau projet
-    $app->post('/projets', function (Request $request, Response $response) {
+    $app->post('/projets', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Projet')->insertGetId([
+        $id = $capsule->table('Projet')->insertGetId([
             'titre_projet' => $data['titre_projet'],
             'etat_projet' => $data['etat_projet'],
             'description_projet' => $data['description_projet'],
@@ -306,10 +423,9 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un projet
-    $app->put('/projets/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/projets/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Projet')->where('id_projet', $args['id'])->update([
+        $capsule->table('Projet')->where('id_projet', $args['id'])->update([
             'titre_projet' => $data['titre_projet'],
             'etat_projet' => $data['etat_projet'],
             'description_projet' => $data['description_projet']
@@ -318,9 +434,8 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un projet
-    $app->delete('/projets/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Projet')->where('id_projet', $args['id'])->delete();
+    $app->delete('/projets/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Projet')->where('id_projet', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Projet supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -329,16 +444,14 @@ return function ($app) {
     // ROUTES NOTE
     // ========================================
     
-    // GET - Liste toutes les notes
-    $app->get('/notes', function (Request $request, Response $response) {
-        $notes = $this->get('db')->table('Note')->get();
+    $app->get('/notes', function (Request $request, Response $response) use ($capsule) {
+        $notes = $capsule->table('Note')->get();
         $response->getBody()->write($notes->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère une note par ID
-    $app->get('/notes/{id}', function (Request $request, Response $response, array $args) {
-        $note = $this->get('db')->table('Note')->where('id_Note', $args['id'])->first();
+    $app->get('/notes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $note = $capsule->table('Note')->where('id_Note', $args['id'])->first();
         if (!$note) {
             $response->getBody()->write(json_encode(['error' => 'Note non trouvée']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -347,19 +460,17 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère toutes les notes d'un projet
-    $app->get('/projets/{id}/notes', function (Request $request, Response $response, array $args) {
-        $notes = $this->get('db')->table('Note')
+    $app->get('/projets/{id}/notes', function (Request $request, Response $response, array $args) use ($capsule) {
+        $notes = $capsule->table('Note')
             ->where('Projet_id_projet', $args['id'])
             ->get();
         $response->getBody()->write($notes->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle note
-    $app->post('/notes', function (Request $request, Response $response) {
+    $app->post('/notes', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Note')->insertGetId([
+        $id = $capsule->table('Note')->insertGetId([
             'titre_note' => $data['titre_note'],
             'etat_note' => $data['etat_note'],
             'description_note' => $data['description_note'],
@@ -371,10 +482,9 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour une note
-    $app->put('/notes/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/notes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Note')->where('id_Note', $args['id'])->update([
+        $capsule->table('Note')->where('id_Note', $args['id'])->update([
             'titre_note' => $data['titre_note'],
             'etat_note' => $data['etat_note'],
             'description_note' => $data['description_note']
@@ -383,9 +493,8 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une note
-    $app->delete('/notes/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Note')->where('id_Note', $args['id'])->delete();
+    $app->delete('/notes/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Note')->where('id_Note', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Note supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -394,26 +503,23 @@ return function ($app) {
     // ROUTES COMMENTAIRE
     // ========================================
     
-    // GET - Liste tous les commentaires
-    $app->get('/commentaires', function (Request $request, Response $response) {
-        $commentaires = $this->get('db')->table('Commentaire')->get();
+    $app->get('/commentaires', function (Request $request, Response $response) use ($capsule) {
+        $commentaires = $capsule->table('Commentaire')->get();
         $response->getBody()->write($commentaires->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère tous les commentaires d'une note
-    $app->get('/notes/{id}/commentaires', function (Request $request, Response $response, array $args) {
-        $commentaires = $this->get('db')->table('Commentaire')
+    $app->get('/notes/{id}/commentaires', function (Request $request, Response $response, array $args) use ($capsule) {
+        $commentaires = $capsule->table('Commentaire')
             ->where('Note_id_Note', $args['id'])
             ->get();
         $response->getBody()->write($commentaires->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau commentaire
-    $app->post('/commentaires', function (Request $request, Response $response) {
+    $app->post('/commentaires', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Commentaire')->insertGetId([
+        $id = $capsule->table('Commentaire')->insertGetId([
             'contenu_commentaire' => $data['contenu_commentaire'],
             'date_commentaire' => date('Y-m-d H:i:s'),
             'Utilisateur_id_utilisateur' => $data['Utilisateur_id_utilisateur'],
@@ -423,19 +529,17 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un commentaire
-    $app->put('/commentaires/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/commentaires/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Commentaire')->where('id_Commentaires', $args['id'])->update([
+        $capsule->table('Commentaire')->where('id_Commentaires', $args['id'])->update([
             'contenu_commentaire' => $data['contenu_commentaire']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Commentaire mis à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un commentaire
-    $app->delete('/commentaires/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Commentaire')->where('id_Commentaires', $args['id'])->delete();
+    $app->delete('/commentaires/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Commentaire')->where('id_Commentaires', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Commentaire supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -444,16 +548,14 @@ return function ($app) {
     // ROUTES COMPETENCE
     // ========================================
     
-    // GET - Liste toutes les compétences
-    $app->get('/competences', function (Request $request, Response $response) {
-        $competences = $this->get('db')->table('Competence')->get();
+    $app->get('/competences', function (Request $request, Response $response) use ($capsule) {
+        $competences = $capsule->table('Competence')->get();
         $response->getBody()->write($competences->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère une compétence par ID
-    $app->get('/competences/{id}', function (Request $request, Response $response, array $args) {
-        $competence = $this->get('db')->table('Competence')->where('id_Competence', $args['id'])->first();
+    $app->get('/competences/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $competence = $capsule->table('Competence')->where('id_Competence', $args['id'])->first();
         if (!$competence) {
             $response->getBody()->write(json_encode(['error' => 'Compétence non trouvée']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -462,29 +564,26 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle compétence
-    $app->post('/competences', function (Request $request, Response $response) {
+    $app->post('/competences', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Competence')->insertGetId([
+        $id = $capsule->table('Competence')->insertGetId([
             'nom_competence' => $data['nom_competence']
         ]);
         $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Compétence créée']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour une compétence
-    $app->put('/competences/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/competences/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Competence')->where('id_Competence', $args['id'])->update([
+        $capsule->table('Competence')->where('id_Competence', $args['id'])->update([
             'nom_competence' => $data['nom_competence']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Compétence mise à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une compétence
-    $app->delete('/competences/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Competence')->where('id_Competence', $args['id'])->delete();
+    $app->delete('/competences/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Competence')->where('id_Competence', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Compétence supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -493,16 +592,14 @@ return function ($app) {
     // ROUTES COULEUR
     // ========================================
     
-    // GET - Liste toutes les couleurs
-    $app->get('/couleurs', function (Request $request, Response $response) {
-        $couleurs = $this->get('db')->table('Couleur')->get();
+    $app->get('/couleurs', function (Request $request, Response $response) use ($capsule) {
+        $couleurs = $capsule->table('Couleur')->get();
         $response->getBody()->write($couleurs->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère une couleur par ID
-    $app->get('/couleurs/{id}', function (Request $request, Response $response, array $args) {
-        $couleur = $this->get('db')->table('Couleur')->where('id_couleur', $args['id'])->first();
+    $app->get('/couleurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $couleur = $capsule->table('Couleur')->where('id_couleur', $args['id'])->first();
         if (!$couleur) {
             $response->getBody()->write(json_encode(['error' => 'Couleur non trouvée']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -511,29 +608,26 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle couleur
-    $app->post('/couleurs', function (Request $request, Response $response) {
+    $app->post('/couleurs', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Couleur')->insertGetId([
+        $id = $capsule->table('Couleur')->insertGetId([
             'code_hexa' => $data['code_hexa']
         ]);
         $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Couleur créée']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour une couleur
-    $app->put('/couleurs/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/couleurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Couleur')->where('id_couleur', $args['id'])->update([
+        $capsule->table('Couleur')->where('id_couleur', $args['id'])->update([
             'code_hexa' => $data['code_hexa']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Couleur mise à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une couleur
-    $app->delete('/couleurs/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Couleur')->where('id_couleur', $args['id'])->delete();
+    $app->delete('/couleurs/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Couleur')->where('id_couleur', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Couleur supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -542,16 +636,14 @@ return function ($app) {
     // ROUTES TYPE_FICHIER
     // ========================================
     
-    // GET - Liste tous les types de fichier
-    $app->get('/types-fichier', function (Request $request, Response $response) {
-        $types = $this->get('db')->table('Type_fichier')->get();
+    $app->get('/types-fichier', function (Request $request, Response $response) use ($capsule) {
+        $types = $capsule->table('Type_fichier')->get();
         $response->getBody()->write($types->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère un type de fichier par ID
-    $app->get('/types-fichier/{id}', function (Request $request, Response $response, array $args) {
-        $type = $this->get('db')->table('Type_fichier')->where('id_type_fichier', $args['id'])->first();
+    $app->get('/types-fichier/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $type = $capsule->table('Type_fichier')->where('id_type_fichier', $args['id'])->first();
         if (!$type) {
             $response->getBody()->write(json_encode(['error' => 'Type de fichier non trouvé']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -560,29 +652,26 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau type de fichier
-    $app->post('/types-fichier', function (Request $request, Response $response) {
+    $app->post('/types-fichier', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Type_fichier')->insertGetId([
+        $id = $capsule->table('Type_fichier')->insertGetId([
             'nom_type_fichier' => $data['nom_type_fichier']
         ]);
         $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Type de fichier créé']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un type de fichier
-    $app->put('/types-fichier/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/types-fichier/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Type_fichier')->where('id_type_fichier', $args['id'])->update([
+        $capsule->table('Type_fichier')->where('id_type_fichier', $args['id'])->update([
             'nom_type_fichier' => $data['nom_type_fichier']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Type de fichier mis à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un type de fichier
-    $app->delete('/types-fichier/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Type_fichier')->where('id_type_fichier', $args['id'])->delete();
+    $app->delete('/types-fichier/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Type_fichier')->where('id_type_fichier', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Type de fichier supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -591,26 +680,23 @@ return function ($app) {
     // ROUTES DOCUMENT
     // ========================================
     
-    // GET - Liste tous les documents
-    $app->get('/documents', function (Request $request, Response $response) {
-        $documents = $this->get('db')->table('Document')->get();
+    $app->get('/documents', function (Request $request, Response $response) use ($capsule) {
+        $documents = $capsule->table('Document')->get();
         $response->getBody()->write($documents->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère tous les documents d'une note
-    $app->get('/notes/{id}/documents', function (Request $request, Response $response, array $args) {
-        $documents = $this->get('db')->table('Document')
+    $app->get('/notes/{id}/documents', function (Request $request, Response $response, array $args) use ($capsule) {
+        $documents = $capsule->table('Document')
             ->where('Note_id_Note', $args['id'])
             ->get();
         $response->getBody()->write($documents->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau document
-    $app->post('/documents', function (Request $request, Response $response) {
+    $app->post('/documents', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Document')->insertGetId([
+        $id = $capsule->table('Document')->insertGetId([
             'nom_fichier' => $data['nom_fichier'],
             'taille_fichier' => $data['taille_fichier'],
             'chemin_fichier' => $data['chemin_fichier'],
@@ -622,9 +708,8 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un document
-    $app->delete('/documents/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Document')->where('id_Document', $args['id'])->delete();
+    $app->delete('/documents/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Document')->where('id_Document', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Document supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -633,16 +718,14 @@ return function ($app) {
     // ROUTES NOTIFICATION
     // ========================================
     
-    // GET - Liste toutes les notifications
-    $app->get('/notifications', function (Request $request, Response $response) {
-        $notifications = $this->get('db')->table('Notification')->get();
+    $app->get('/notifications', function (Request $request, Response $response) use ($capsule) {
+        $notifications = $capsule->table('Notification')->get();
         $response->getBody()->write($notifications->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère toutes les notifications d'un utilisateur
-    $app->get('/utilisateurs/{id}/notifications', function (Request $request, Response $response, array $args) {
-        $notifications = $this->get('db')->table('UtilisateurNotification')
+    $app->get('/utilisateurs/{id}/notifications', function (Request $request, Response $response, array $args) use ($capsule) {
+        $notifications = $capsule->table('UtilisateurNotification')
             ->join('Notification', 'UtilisateurNotification.Notification_id_Notification', '=', 'Notification.id_Notification')
             ->where('UtilisateurNotification.Utilisateur_id_Utilisateur', $args['id'])
             ->select('Notification.*', 'UtilisateurNotification.date_lecture')
@@ -651,10 +734,9 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle notification
-    $app->post('/notifications', function (Request $request, Response $response) {
+    $app->post('/notifications', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Notification')->insertGetId([
+        $id = $capsule->table('Notification')->insertGetId([
             'message' => $data['message'],
             'date_notification' => date('Y-m-d H:i:s')
         ]);
@@ -662,9 +744,8 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une notification
-    $app->delete('/notifications/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Notification')->where('id_Notification', $args['id'])->delete();
+    $app->delete('/notifications/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Notification')->where('id_Notification', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Notification supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -673,16 +754,14 @@ return function ($app) {
     // ROUTES ROLE
     // ========================================
     
-    // GET - Liste tous les rôles
-    $app->get('/roles', function (Request $request, Response $response) {
-        $roles = $this->get('db')->table('Role')->get();
+    $app->get('/roles', function (Request $request, Response $response) use ($capsule) {
+        $roles = $capsule->table('Role')->get();
         $response->getBody()->write($roles->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère un rôle par ID
-    $app->get('/roles/{id}', function (Request $request, Response $response, array $args) {
-        $role = $this->get('db')->table('Role')->where('id_role', $args['id'])->first();
+    $app->get('/roles/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $role = $capsule->table('Role')->where('id_role', $args['id'])->first();
         if (!$role) {
             $response->getBody()->write(json_encode(['error' => 'Rôle non trouvé']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -691,29 +770,26 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau rôle
-    $app->post('/roles', function (Request $request, Response $response) {
+    $app->post('/roles', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Role')->insertGetId([
+        $id = $capsule->table('Role')->insertGetId([
             'nom_role' => $data['nom_role']
         ]);
         $response->getBody()->write(json_encode(['id' => $id, 'message' => 'Rôle créé']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un rôle
-    $app->put('/roles/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/roles/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Role')->where('id_role', $args['id'])->update([
+        $capsule->table('Role')->where('id_role', $args['id'])->update([
             'nom_role' => $data['nom_role']
         ]);
         $response->getBody()->write(json_encode(['message' => 'Rôle mis à jour']));
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un rôle
-    $app->delete('/roles/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Role')->where('id_role', $args['id'])->delete();
+    $app->delete('/roles/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Role')->where('id_role', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Rôle supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -722,16 +798,14 @@ return function ($app) {
     // ROUTES TAG
     // ========================================
     
-    // GET - Liste tous les tags
-    $app->get('/tags', function (Request $request, Response $response) {
-        $tags = $this->get('db')->table('Tag')->get();
+    $app->get('/tags', function (Request $request, Response $response) use ($capsule) {
+        $tags = $capsule->table('Tag')->get();
         $response->getBody()->write($tags->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère un tag par ID
-    $app->get('/tags/{id}', function (Request $request, Response $response, array $args) {
-        $tag = $this->get('db')->table('Tag')->where('id_tag', $args['id'])->first();
+    $app->get('/tags/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $tag = $capsule->table('Tag')->where('id_tag', $args['id'])->first();
         if (!$tag) {
             $response->getBody()->write(json_encode(['error' => 'Tag non trouvé']));
             return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
@@ -740,19 +814,17 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère tous les tags d'un utilisateur
-    $app->get('/utilisateurs/{id}/tags', function (Request $request, Response $response, array $args) {
-        $tags = $this->get('db')->table('Tag')
+    $app->get('/utilisateurs/{id}/tags', function (Request $request, Response $response, array $args) use ($capsule) {
+        $tags = $capsule->table('Tag')
             ->where('Utilisateur_id_Utilisateur', $args['id'])
             ->get();
         $response->getBody()->write($tags->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée un nouveau tag
-    $app->post('/tags', function (Request $request, Response $response) {
+    $app->post('/tags', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Tag')->insertGetId([
+        $id = $capsule->table('Tag')->insertGetId([
             'titre_tag' => $data['titre_tag'],
             'Couleur_id_Couleur' => $data['Couleur_id_Couleur'],
             'Utilisateur_id_Utilisateur' => $data['Utilisateur_id_Utilisateur']
@@ -761,10 +833,9 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour un tag
-    $app->put('/tags/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/tags/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Tag')->where('id_tag', $args['id'])->update([
+        $capsule->table('Tag')->where('id_tag', $args['id'])->update([
             'titre_tag' => $data['titre_tag'],
             'Couleur_id_Couleur' => $data['Couleur_id_Couleur']
         ]);
@@ -772,9 +843,8 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime un tag
-    $app->delete('/tags/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Tag')->where('id_tag', $args['id'])->delete();
+    $app->delete('/tags/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Tag')->where('id_tag', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Tag supprimé']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -783,26 +853,23 @@ return function ($app) {
     // ROUTES TACHE
     // ========================================
     
-    // GET - Liste toutes les tâches
-    $app->get('/taches', function (Request $request, Response $response) {
-        $taches = $this->get('db')->table('Tache')->get();
+    $app->get('/taches', function (Request $request, Response $response) use ($capsule) {
+        $taches = $capsule->table('Tache')->get();
         $response->getBody()->write($taches->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // GET - Récupère toutes les tâches d'un projet
-    $app->get('/projets/{id}/taches', function (Request $request, Response $response, array $args) {
-        $taches = $this->get('db')->table('Tache')
+    $app->get('/projets/{id}/taches', function (Request $request, Response $response, array $args) use ($capsule) {
+        $taches = $capsule->table('Tache')
             ->where('Projet_id_projet', $args['id'])
             ->get();
         $response->getBody()->write($taches->toJson());
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // POST - Crée une nouvelle tâche
-    $app->post('/taches', function (Request $request, Response $response) {
+    $app->post('/taches', function (Request $request, Response $response) use ($capsule) {
         $data = $request->getParsedBody();
-        $id = $this->get('db')->table('Tache')->insertGetId([
+        $id = $capsule->table('Tache')->insertGetId([
             'titre_tache' => $data['titre_tache'],
             'description_tache' => $data['description_tache'],
             'etat_tache' => $data['etat_tache'],
@@ -812,10 +879,9 @@ return function ($app) {
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
     });
 
-    // PUT - Met à jour une tâche
-    $app->put('/taches/{id}', function (Request $request, Response $response, array $args) {
+    $app->put('/taches/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
         $data = $request->getParsedBody();
-        $this->get('db')->table('Tache')->where('id_tache', $args['id'])->update([
+        $capsule->table('Tache')->where('id_tache', $args['id'])->update([
             'titre_tache' => $data['titre_tache'],
             'description_tache' => $data['description_tache'],
             'etat_tache' => $data['etat_tache']
@@ -824,9 +890,8 @@ return function ($app) {
         return $response->withHeader('Content-Type', 'application/json');
     });
 
-    // DELETE - Supprime une tâche
-    $app->delete('/taches/{id}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('Tache')->where('id_tache', $args['id'])->delete();
+    $app->delete('/taches/{id}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('Tache')->where('id_tache', $args['id'])->delete();
         $response->getBody()->write(json_encode(['message' => 'Tâche supprimée']));
         return $response->withHeader('Content-Type', 'application/json');
     });
@@ -836,8 +901,8 @@ return function ($app) {
     // ========================================
 
     // Associer un utilisateur à un projet
-    $app->post('/projets/{id_projet}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('ProjetUtilisateur')->insert([
+    $app->post('/projets/{id_projet}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('ProjetUtilisateur')->insert([
             'Projet_id_Projet' => $args['id_projet'],
             'Utilisateur_id_Utilisateur' => $args['id_utilisateur']
         ]);
@@ -846,8 +911,8 @@ return function ($app) {
     });
 
     // Retirer un utilisateur d'un projet
-    $app->delete('/projets/{id_projet}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('ProjetUtilisateur')
+    $app->delete('/projets/{id_projet}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('ProjetUtilisateur')
             ->where('Projet_id_Projet', $args['id_projet'])
             ->where('Utilisateur_id_Utilisateur', $args['id_utilisateur'])
             ->delete();
@@ -856,8 +921,8 @@ return function ($app) {
     });
 
     // Associer un tag à un projet
-    $app->post('/projets/{id_projet}/tags/{id_tag}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('ProjetTag')->insert([
+    $app->post('/projets/{id_projet}/tags/{id_tag}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('ProjetTag')->insert([
             'Projet_id_projet' => $args['id_projet'],
             'Tag_id_tag' => $args['id_tag']
         ]);
@@ -866,8 +931,8 @@ return function ($app) {
     });
 
     // Retirer un tag d'un projet
-    $app->delete('/projets/{id_projet}/tags/{id_tag}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('ProjetTag')
+    $app->delete('/projets/{id_projet}/tags/{id_tag}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('ProjetTag')
             ->where('Projet_id_projet', $args['id_projet'])
             ->where('Tag_id_tag', $args['id_tag'])
             ->delete();
@@ -876,8 +941,8 @@ return function ($app) {
     });
 
     // Associer un tag à une note
-    $app->post('/notes/{id_note}/tags/{id_tag}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('TagNote')->insert([
+    $app->post('/notes/{id_note}/tags/{id_tag}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('TagNote')->insert([
             'Note_id_Note' => $args['id_note'],
             'Tag_id_tag' => $args['id_tag']
         ]);
@@ -886,8 +951,8 @@ return function ($app) {
     });
 
     // Retirer un tag d'une note
-    $app->delete('/notes/{id_note}/tags/{id_tag}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('TagNote')
+    $app->delete('/notes/{id_note}/tags/{id_tag}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('TagNote')
             ->where('Note_id_Note', $args['id_note'])
             ->where('Tag_id_tag', $args['id_tag'])
             ->delete();
@@ -896,8 +961,8 @@ return function ($app) {
     });
 
     // Associer une compétence à un utilisateur
-    $app->post('/utilisateurs/{id_utilisateur}/competences/{id_competence}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('UtilisateurCompetence')->insert([
+    $app->post('/utilisateurs/{id_utilisateur}/competences/{id_competence}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('UtilisateurCompetence')->insert([
             'Utilisateur_id_Utilisateur' => $args['id_utilisateur'],
             'Competence_id_Competence' => $args['id_competence']
         ]);
@@ -906,8 +971,8 @@ return function ($app) {
     });
 
     // Retirer une compétence d'un utilisateur
-    $app->delete('/utilisateurs/{id_utilisateur}/competences/{id_competence}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('UtilisateurCompetence')
+    $app->delete('/utilisateurs/{id_utilisateur}/competences/{id_competence}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('UtilisateurCompetence')
             ->where('Utilisateur_id_Utilisateur', $args['id_utilisateur'])
             ->where('Competence_id_Competence', $args['id_competence'])
             ->delete();
@@ -916,8 +981,8 @@ return function ($app) {
     });
 
     // Associer un rôle à un utilisateur
-    $app->post('/utilisateurs/{id_utilisateur}/roles/{id_role}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('RoleUtilisateur')->insert([
+    $app->post('/utilisateurs/{id_utilisateur}/roles/{id_role}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('RoleUtilisateur')->insert([
             'Utilisateur_id_Utilisateur' => $args['id_utilisateur'],
             'Role_id_Role' => $args['id_role']
         ]);
@@ -926,8 +991,8 @@ return function ($app) {
     });
 
     // Retirer un rôle d'un utilisateur
-    $app->delete('/utilisateurs/{id_utilisateur}/roles/{id_role}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('RoleUtilisateur')
+    $app->delete('/utilisateurs/{id_utilisateur}/roles/{id_role}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('RoleUtilisateur')
             ->where('Utilisateur_id_Utilisateur', $args['id_utilisateur'])
             ->where('Role_id_Role', $args['id_role'])
             ->delete();
@@ -936,8 +1001,8 @@ return function ($app) {
     });
 
     // Associer un utilisateur à une tâche
-    $app->post('/taches/{id_tache}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('UtilisateurTache')->insert([
+    $app->post('/taches/{id_tache}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('UtilisateurTache')->insert([
             'Tache_id_tache' => $args['id_tache'],
             'Utilisateur_id_utilisateur' => $args['id_utilisateur']
         ]);
@@ -946,8 +1011,8 @@ return function ($app) {
     });
 
     // Retirer un utilisateur d'une tâche
-    $app->delete('/taches/{id_tache}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('UtilisateurTache')
+    $app->delete('/taches/{id_tache}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('UtilisateurTache')
             ->where('Tache_id_tache', $args['id_tache'])
             ->where('Utilisateur_id_utilisateur', $args['id_utilisateur'])
             ->delete();
@@ -956,8 +1021,8 @@ return function ($app) {
     });
 
     // Associer un utilisateur à une note
-    $app->post('/notes/{id_note}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('NoteUtilisateur')->insert([
+    $app->post('/notes/{id_note}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('NoteUtilisateur')->insert([
             'Note_id_Note' => $args['id_note'],
             'Utilisateur_id_Utilisateur' => $args['id_utilisateur']
         ]);
@@ -966,8 +1031,8 @@ return function ($app) {
     });
 
     // Retirer un utilisateur d'une note
-    $app->delete('/notes/{id_note}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('NoteUtilisateur')
+    $app->delete('/notes/{id_note}/utilisateurs/{id_utilisateur}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('NoteUtilisateur')
             ->where('Note_id_Note', $args['id_note'])
             ->where('Utilisateur_id_Utilisateur', $args['id_utilisateur'])
             ->delete();
@@ -976,11 +1041,11 @@ return function ($app) {
     });
 
     // Associer une notification à un utilisateur
-    $app->post('/utilisateurs/{id_utilisateur}/notifications/{id_notification}', function (Request $request, Response $response, array $args) {
-        $this->get('db')->table('UtilisateurNotification')->insert([
+    $app->post('/utilisateurs/{id_utilisateur}/notifications/{id_notification}', function (Request $request, Response $response, array $args) use ($capsule) {
+        $capsule->table('UtilisateurNotification')->insert([
             'Utilisateur_id_Utilisateur' => $args['id_utilisateur'],
             'Notification_id_Notification' => $args['id_notification'],
-            'date_lecture' => date('Y-m-d H:i:s')
+            'date_lecture' => null
         ]);
         $response->getBody()->write(json_encode(['message' => 'Notification associée à l\'utilisateur']));
         return $response->withStatus(201)->withHeader('Content-Type', 'application/json');

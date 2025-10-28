@@ -1,34 +1,34 @@
 <?php
 
 use Slim\Factory\AppFactory;
-use DI\Container;
-use Dotenv\Dotenv;
-
+use Illuminate\Database\Capsule\Manager as Capsule;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// Charger les variables d'environnement
-$dotenv = Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
 $dotenv->load();
 
-// Créer le container PHP-DI
-$container = new Container();
-AppFactory::setContainer($container);
+session_start();
+
+// Initialiser la base de données
+$capsule = (require __DIR__ . '/../src/dependencies.php')();
 
 // Créer l'application Slim
 $app = AppFactory::create();
 
-// Ajouter les middlewares (important pour Slim 4)
+// Ajouter le middleware de routage
 $app->addRoutingMiddleware();
-$app->addErrorMiddleware(true, true, true);
 
-// Charger les dépendances
-$dependencies = require __DIR__ . '/../src/dependencies.php';
-$dependencies($app);
+// Ajouter le middleware de session
+$sessionMiddleware = require __DIR__ . '/../src/Middleware/session.php';
+$app->add($sessionMiddleware);
 
-// Charger les routes
+// Ajouter le middleware d'erreur
+$errorMiddleware = $app->addErrorMiddleware(true, true, true);
+
+// Charger les routes (passer $capsule)
 $routes = require __DIR__ . '/../src/routes.php';
-$routes($app);
+$routes($app, $capsule);
 
 // Lancer l'application
 $app->run();
